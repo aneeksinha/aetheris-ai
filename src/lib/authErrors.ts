@@ -51,10 +51,10 @@ export function validatePassword(rawPassword: string): PasswordValidationResult 
   return { valid: true };
 }
 
-function extractAuthCode(error: unknown): string {
+export function extractFirebaseAuthCode(error: unknown): string {
   if (!error || typeof error !== 'object') return '';
   if ('code' in error && typeof (error as { code?: unknown }).code === 'string') {
-    return (error as { code: string }).code;
+    return (error as { code: string }).code.toLowerCase();
   }
   if (error instanceof Error) {
     const match = error.message.match(/\((auth\/[a-z0-9-]+)\)/i);
@@ -76,23 +76,35 @@ export function isFirebasePopupAssertionError(error: unknown): boolean {
   );
 }
 
+export function isEmailAuthDisabledError(error: unknown): boolean {
+  const code = extractFirebaseAuthCode(error);
+  const msg = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  return (
+    code === 'auth/operation-not-allowed' ||
+    code === 'auth/admin-restricted-operation' ||
+    msg.includes('OPERATION_NOT_ALLOWED') ||
+    msg.includes('ADMIN_ONLY_OPERATION')
+  );
+}
+
 export function formatFirebaseAuthError(error: unknown): string {
   if (isFirebasePopupAssertionError(error)) {
     return 'The sign-in pop-up closed or was interrupted by the browser. Please allow pop-ups and try again.';
   }
 
-  const code = extractAuthCode(error);
+  const code = extractFirebaseAuthCode(error);
 
   switch (code) {
     case 'auth/invalid-credential':
     case 'auth/wrong-password':
     case 'auth/user-not-found':
-      return 'Incorrect email or password. Check your details, click Forgot password?, or switch to Create account.';
+      return 'Incorrect email or password. Check your details, click Forgot password?, or switch to the Create account tab.';
     case 'auth/email-already-in-use':
-      return 'An account already exists with this email. Sign in with your password or use Google / Apple if you registered with a social provider.';
+      return 'An account already exists with this email. Switch to Sign in with your password or use Continue with Google.';
     case 'auth/weak-password':
       return 'Password is too weak. Please choose a password with at least 6 characters.';
     case 'auth/invalid-email':
+    case 'auth/missing-email':
       return 'Please enter a valid email address.';
     case 'auth/user-disabled':
       return 'This account has been disabled. Contact support for help.';
@@ -109,11 +121,14 @@ export function formatFirebaseAuthError(error: unknown): string {
     case 'auth/network-request-failed':
       return 'Network error while reaching authentication servers. Check your internet connection and try again.';
     case 'auth/operation-not-allowed':
-      return 'This sign-in provider is not enabled yet in Firebase Console -> Authentication -> Sign-in method.';
+    case 'auth/admin-restricted-operation':
+      return 'Email/Password sign-up is not enabled in Firebase Console yet. Enable the Email/Password provider under Authentication -> Sign-in method, or use Continue with Google.';
     case 'auth/account-exists-with-different-credential':
-      return 'An account already exists with this email using a different sign-in provider. Try Continue with Google or Email/Password.';
+      return 'An account already exists with this email using another sign-in method. Try Continue with Google.';
     case 'auth/too-many-requests':
-      return 'Too many sign-in attempts in a short time. Wait a moment and try again.';
+      return 'Too many attempts in a short time. Wait a moment and try again.';
+    case 'auth/user-token-expired':
+      return 'Your session expired. Please sign in again.';
     case 'auth/internal-error':
       return 'Authentication encountered a temporary internal error. Please try again.';
     default:

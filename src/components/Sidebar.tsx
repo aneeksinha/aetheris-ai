@@ -56,7 +56,7 @@ export function Sidebar({
   mobileOpen,
   onCloseMobile,
 }: SidebarProps) {
-  const { user, profile, isOwner, hasUnlimitedAccess, signOut } = useAuth();
+  const { user, profile, isEmailVerified, isOwner, hasUnlimitedAccess, signOut } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
 
   const filteredChats = searchQuery.trim()
@@ -150,8 +150,8 @@ export function Sidebar({
       </div>
 
       {/* Chat History Area */}
-      <div className="flex-1 min-h-0 flex flex-col border-t border-slate-200/60 dark:border-white/10">
-        <div className="px-4 pt-3 pb-2 flex items-center justify-between">
+      <div className="relative flex-1 min-h-0 flex flex-col border-t border-slate-200/60 dark:border-white/10">
+        <div className="px-4 pt-3 pb-2 flex items-center justify-between shrink-0">
           <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
             Chat History
           </span>
@@ -163,7 +163,7 @@ export function Sidebar({
         </div>
 
         {!user ? (
-          <div className="px-3 py-2">
+          <div className="flex-1 min-h-0 overflow-y-auto px-3 pt-1 pb-28">
             <div className="rounded-2xl liquid-glass p-3.5 space-y-2.5">
               <div className="flex items-center gap-2 text-xs font-semibold text-slate-900 dark:text-slate-100">
                 <Lock className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
@@ -184,7 +184,7 @@ export function Sidebar({
           </div>
         ) : (
           <>
-            <div className="px-3 pb-2">
+            <div className="px-3 pb-2 shrink-0">
               <label className="relative block">
                 <span className="sr-only">Search chat history</span>
                 <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -198,7 +198,7 @@ export function Sidebar({
               </label>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-2 pb-3 space-y-1">
+            <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-28 space-y-1">
               {filteredChats.length === 0 ? (
                 <div className="px-3 py-6 text-center text-xs text-slate-500 dark:text-slate-400">
                   {chats.length === 0
@@ -243,6 +243,28 @@ export function Sidebar({
             </div>
           </>
         )}
+
+        {/* Translucent Liquid-Glass Bubble Floating Over Account / Logout Section */}
+        <div className="pointer-events-none absolute inset-x-2.5 bottom-2.5 z-10">
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            className="pointer-events-auto rounded-2xl liquid-glass-promo px-3.5 py-2.5 text-[11.5px] leading-relaxed text-slate-900 dark:text-slate-100"
+          >
+            <p>
+              Want to get Unlimited access ?{' '}
+              <a
+                href="https://www.instagram.com/aetherisaihub/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-semibold underline decoration-slate-900/45 dark:decoration-white/45 underline-offset-2 hover:decoration-slate-900 dark:hover:decoration-white transition-colors"
+              >
+                Contact us on Instagram @aetherisaihub
+              </a>
+            </p>
+          </motion.div>
+        </div>
       </div>
 
       {/* Account Footer */}
@@ -271,9 +293,11 @@ export function Sidebar({
               <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
                 {isOwner
                   ? 'Owner · Manage unlimited emails'
-                  : hasUnlimitedAccess
-                    ? 'Unlimited access granted'
-                    : 'Uploads & history synced'}
+                  : !isEmailVerified
+                    ? 'Verify email to sync history'
+                    : hasUnlimitedAccess
+                      ? 'Unlimited access granted'
+                      : 'Uploads & history synced'}
               </div>
             </button>
             <button

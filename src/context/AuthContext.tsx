@@ -16,6 +16,7 @@ import {
   signInWithPopup,
   signOut as firebaseSignOut,
   updateProfile,
+  type ActionCodeSettings,
   type AuthProvider as FirebaseAuthProvider,
   type User,
 } from 'firebase/auth';
@@ -26,7 +27,6 @@ import {
   setDoc,
 } from 'firebase/firestore';
 import {
-  appleProvider,
   auth,
   browserPopupRedirectResolver,
   db,
@@ -38,7 +38,9 @@ import {
   testFirestoreConnection,
 } from '../lib/firebase';
 import {
+  extractFirebaseAuthCode,
   formatFirebaseAuthError,
+  isEmailAuthDisabledError,
   isFirebasePopupAssertionError,
 } from '../lib/authErrors';
 import { isOwnerEmail } from '../lib/models';
@@ -54,9 +56,9 @@ interface AuthContextValue {
   authReady: boolean;
   authBusy: boolean;
   authError: string | null;
+  emailAuthDisabled: boolean;
   clearAuthError: () => void;
   signInWithGoogle: () => Promise<boolean>;
-  signInWithApple: () => Promise<boolean>;
   signInWithEmailPassword: (email: string, password: string) => Promise<boolean>;
   signUpWithEmailPassword: (
     email: string,
@@ -80,6 +82,54 @@ function sanitizeDisplayName(
   const emailPrefix = email ? email.split('@')[0] : '';
   const cleaned = (name || emailPrefix || 'Member').trim().slice(0, 100);
   return cleaned.length > 0 ? cleaned : 'Member';
+}
+
+function getContinueActionSettings(): ActionCodeSettings | undefined {
+  if (typeof window === 'undefined' || !window.location?.origin) return undefined;
+  return { url: window.location.origin };
+}
+
+function isContinueUriError(err: unknown): boolean {
+  const code = extractFirebaseAuthCode(err);
+  return (
+    code === 'auth/unauthorized-continue-uri' ||
+    code === 'auth/invalid-continue-uri' ||
+    code === 'auth/missing-continue-uri'
+  );
+}
+
+async function sendVerificationWithFallback(targetUser: User): Promise<void> {
+  const settings = getContinueActionSettings();
+  if (!settings) {
+    await sendEmailVerification(targetUser);
+    return;
+  }
+  try {
+    await sendEmailVerification(targetUser, settings);
+  } catch (err) {
+    if (isContinueUriError(err)) {
+      await sendEmailVerification(targetUser);
+      return;
+    }
+    throw err;
+  }
+}
+
+async function sendPasswordResetWithFallback(email: string): Promise<void> {
+  const settings = getContinueActionSettings();
+  if (!settings) {
+    await sendPasswordResetEmail(auth, email);
+    return;
+  }
+  try {
+    await sendPasswordResetEmail(auth, email, settings);
+  } catch (err) {
+    if (isContinueUriError(err)) {
+      await sendPasswordResetEmail(auth, email);
+      return;
+    }
+    throw err;
+  }
 }
 
 async function loadOrCreateUserProfileViaRest(user: User): Promise<UserProfile> {
@@ -110,7 +160,7 @@ async function loadOrCreateUserProfileViaRest(user: User): Promise<UserProfile> 
 
   if (res.status === 404) {
     const safeName = sanitizeDisplayName(user.displayName, user.email);
-    await fetch(`${baseUrl}/documents:commit`, {
+    const commitRes = await fetch(`${baseUrl}/documents:commit`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${idToken}`,
@@ -136,6 +186,10 @@ async function loadOrCreateUserProfileViaRest(user: User): Promise<UserProfile> 
       }),
     });
 
+    if (!commitRes.ok) {
+      throw new Error(`REST profile commit failed (${commitRes.status})`);
+    }
+
     return {
       uid: user.uid,
       displayName: safeName,
@@ -153,6 +207,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [authReady, setAuthReady] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [emailAuthDisabled, setEmailAuthDisabled] = useState(false);
   const authBusyRef = useRef(false);
 
   const syncVerifiedUserProfile = useCallback(async (targetUser: User) => {
@@ -249,6 +304,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!nextUser) {
         setProfile(null);
         setIsEmailVerified(false);
+        setHasUnlimitedGrant(false);
+        setEmailAuthDisabled(false);
         setAuthReady(true);
         return;
       }
@@ -300,21 +357,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [runPopupSignIn],
   );
 
-  const signInWithApple = useCallback(
-    () => runPopupSignIn(appleProvider),
-    [runPopupSignIn],
-  );
-
   const signInWithEmailPassword = useCallback(
     async (email: string, password: string): Promise<boolean> => {
       if (authBusyRef.current) return false;
       authBusyRef.current = true;
       setAuthBusy(true);
       setAuthError(null);
+      setEmailAuthDisabled(false);
       try {
         await signInWithEmailAndPassword(auth, email.trim(), password);
         return true;
       } catch (err) {
+        setEmailAuthDisabled(isEmailAuthDisabledError(err));
         setAuthError(formatFirebaseAuthError(err));
         return false;
       } finally {
@@ -335,19 +389,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       authBusyRef.current = true;
       setAuthBusy(true);
       setAuthError(null);
+      setEmailAuthDisabled(false);
       try {
         const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
         const cleanName = sanitizeDisplayName(displayName, cred.user.email);
         if (displayName?.trim()) {
           await updateProfile(cred.user, { displayName: cleanName }).catch(() => undefined);
         }
-        await sendEmailVerification(cred.user).catch(() => undefined);
+        await sendVerificationWithFallback(cred.user).catch(() => undefined);
         setProfile({
           uid: cred.user.uid,
           displayName: cleanName,
         });
         return true;
       } catch (err) {
+        setEmailAuthDisabled(isEmailAuthDisabledError(err));
         setAuthError(formatFirebaseAuthError(err));
         return false;
       } finally {
@@ -364,7 +420,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAuthBusy(true);
     setAuthError(null);
     try {
-      await sendPasswordResetEmail(auth, email.trim());
+      await sendPasswordResetWithFallback(email.trim());
       return true;
     } catch (err) {
       setAuthError(formatFirebaseAuthError(err));
@@ -381,7 +437,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAuthBusy(true);
     setAuthError(null);
     try {
-      await sendEmailVerification(auth.currentUser);
+      await auth.currentUser.reload();
+      if (auth.currentUser.emailVerified) {
+        await auth.currentUser.getIdToken(true);
+        setIsEmailVerified(true);
+        await syncVerifiedUserProfile(auth.currentUser);
+        return true;
+      }
+      await sendVerificationWithFallback(auth.currentUser);
       return true;
     } catch (err) {
       setAuthError(formatFirebaseAuthError(err));
@@ -390,7 +453,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       authBusyRef.current = false;
       setAuthBusy(false);
     }
-  }, []);
+  }, [syncVerifiedUserProfile]);
 
   const refreshVerificationStatus = useCallback(async (): Promise<boolean> => {
     if (!auth.currentUser) return false;
@@ -413,19 +476,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [syncVerifiedUserProfile]);
 
+  // Automatically check verification when the user returns from clicking their inbox link
+  useEffect(() => {
+    if (!user || isEmailVerified) return;
+
+    const checkQuietly = async () => {
+      if (!auth.currentUser || authBusyRef.current) return;
+      try {
+        await auth.currentUser.reload();
+        if (auth.currentUser.emailVerified) {
+          await auth.currentUser.getIdToken(true);
+          setIsEmailVerified(true);
+          await syncVerifiedUserProfile(auth.currentUser);
+        }
+      } catch {
+        // Ignore transient reload failures while waiting for user verification
+      }
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        void checkQuietly();
+      }
+    };
+    const handleFocus = () => {
+      void checkQuietly();
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [user, isEmailVerified, syncVerifiedUserProfile]);
+
   const signOut = useCallback(async (): Promise<void> => {
     setAuthBusy(true);
     setAuthError(null);
+    setEmailAuthDisabled(false);
     try {
       await firebaseSignOut(auth);
       setProfile(null);
       setIsEmailVerified(false);
+      setHasUnlimitedGrant(false);
     } finally {
       setAuthBusy(false);
     }
   }, []);
 
-  const clearAuthError = useCallback(() => setAuthError(null), []);
+  const clearAuthError = useCallback(() => {
+    setAuthError(null);
+    setEmailAuthDisabled(false);
+  }, []);
   const isOwner = isOwnerEmail(user?.email, isEmailVerified);
 
   useEffect(() => {
@@ -456,9 +559,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         authReady,
         authBusy,
         authError,
+        emailAuthDisabled,
         clearAuthError,
         signInWithGoogle,
-        signInWithApple,
         signInWithEmailPassword,
         signUpWithEmailPassword,
         sendPasswordReset,

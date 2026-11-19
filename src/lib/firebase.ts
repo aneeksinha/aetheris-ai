@@ -7,7 +7,6 @@ import {
   GoogleAuthProvider,
   indexedDBLocalPersistence,
   initializeAuth,
-  OAuthProvider,
   type Auth,
 } from 'firebase/auth';
 import {
@@ -20,15 +19,22 @@ import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 // Force HTTP long-polling to avoid 10s WebChannel stream stalls in proxied/iframe networks
-initializeFirestore(
-  app,
-  {
-    experimentalForceLongPolling: true,
-    ignoreUndefinedProperties: true,
-  },
-  firebaseConfig.firestoreDatabaseId,
-);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+function createFirestoreInstance() {
+  try {
+    return initializeFirestore(
+      app,
+      {
+        experimentalForceLongPolling: true,
+        ignoreUndefinedProperties: true,
+      },
+      firebaseConfig.firestoreDatabaseId,
+    );
+  } catch {
+    return getFirestore(app, firebaseConfig.firestoreDatabaseId);
+  }
+}
+
+export const db = createFirestoreInstance();
 
 function createAuthInstance(): Auth {
   try {
@@ -48,10 +54,6 @@ function createAuthInstance(): Auth {
 export const auth = createAuthInstance();
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
-
-export const appleProvider = new OAuthProvider('apple.com');
-appleProvider.addScope('email');
-appleProvider.addScope('name');
 
 export { browserPopupRedirectResolver, firebaseConfig };
 

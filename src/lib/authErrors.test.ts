@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   formatFirebaseAuthError,
+  isEmailAuthDisabledError,
   isFirebasePopupAssertionError,
   validateEmailAddress,
   validatePassword,
@@ -39,6 +40,16 @@ test('isFirebasePopupAssertionError detects Firebase Auth v13 PopupOperation dou
   assert.ok(formatted.toLowerCase().includes('pop-up'));
 });
 
+test('isEmailAuthDisabledError detects Firebase Email/Password disabled errors', () => {
+  assert.equal(isEmailAuthDisabledError({ code: 'auth/operation-not-allowed' }), true);
+  assert.equal(isEmailAuthDisabledError({ code: 'auth/admin-restricted-operation' }), true);
+  assert.equal(
+    isEmailAuthDisabledError(new Error('Firebase: Error (auth/operation-not-allowed).')),
+    true,
+  );
+  assert.equal(isEmailAuthDisabledError({ code: 'auth/wrong-password' }), false);
+});
+
 test('formatFirebaseAuthError maps email/password and popup Firebase Auth codes cleanly', () => {
   assert.ok(
     formatFirebaseAuthError({ code: 'auth/invalid-credential', message: '' })
@@ -74,6 +85,11 @@ test('formatFirebaseAuthError maps email/password and popup Firebase Auth codes 
     formatFirebaseAuthError({ code: 'auth/operation-not-allowed', message: '' })
       .toLowerCase()
       .includes('firebase console'),
+  );
+  assert.ok(
+    formatFirebaseAuthError({ code: 'auth/admin-restricted-operation', message: '' })
+      .toLowerCase()
+      .includes('email/password'),
   );
 });
 

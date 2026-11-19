@@ -48,7 +48,7 @@ export class ErrorBoundary extends Component<Props, State> {
             <button
               type="button"
               onClick={this.handleReset}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl liquid-glass-btn-primary text-white transition-colors"
             >
               <RotateCcw className="w-4 h-4" />
               Reload workspace

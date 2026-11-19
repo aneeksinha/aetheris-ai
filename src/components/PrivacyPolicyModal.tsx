@@ -85,7 +85,7 @@ export function PrivacyPolicyModal({ open, onClose }: PrivacyPolicyModalProps) {
                   <h3>1. Account &amp; Authentication Data</h3>
                 </div>
                 <p className="text-xs sm:text-sm leading-relaxed">
-                  You can use Aetheris openly without creating an account. If you choose to sign in with Google, Apple, or email and password, we collect only your Firebase user identifier (UID), display name, and verified email address to authenticate your session, isolate your private chat history, and authorize file uploads.
+                  You can use Aetheris openly without creating an account. If you choose to sign in with Google or email and password, we collect only your Firebase user identifier (UID), display name, and verified email address to authenticate your session, isolate your private chat history, and authorize file uploads.
                 </p>
               </section>
 

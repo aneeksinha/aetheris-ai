@@ -105,7 +105,7 @@ export function AnalyticsDashboard({
             </h1>
             <p className="text-sm text-slate-600 dark:text-slate-300">
               {isOwner
-                ? `Owner full access active for ${profile?.displayName || user?.email || 'aneeksinha52@gmail.com'} · Unlimited requests`
+                ? `Owner full access active for ${profile?.displayName || user?.email || 'Workspace Owner'} · Unlimited requests`
                 : hasUnlimitedAccess
                   ? `Unlimited request access granted for ${profile?.displayName || user?.email || 'your account'}`
                   : user

@@ -1,8 +1,9 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Eye, EyeOff, Loader2, X } from 'lucide-react';
+import { ExternalLink, Eye, EyeOff, Loader2, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { validateEmailAddress, validatePassword } from '../lib/authErrors';
+import { firebaseConfig } from '../lib/firebase';
 import { GUEST_DAILY_REQUEST_LIMIT, SIGNED_IN_DAILY_REQUEST_LIMIT } from '../lib/models';
 import type { AuthGateReason } from '../types/chat';
 
@@ -42,48 +43,54 @@ function GoogleMark() {
   );
 }
 
-function AppleMark() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className="w-[18px] h-[18px] fill-current shrink-0">
-      <path d="M16.365 1.43c0 1.14-.493 2.27-1.177 3.08-.744.9-1.99 1.57-2.987 1.57-.12 0-.23-.02-.3-.03-.01-.06-.04-.22-.04-.39 0-1.15.572-2.27 1.206-2.98.804-.94 2.142-1.64 3.248-1.68.03.13.05.28.05.43Zm4.565 15.71c-.03.07-.463 1.58-1.518 3.12-.945 1.34-1.94 2.71-3.43 2.71-1.517 0-1.9-.88-3.63-.88-1.698 0-2.302.91-3.67.91-1.377 0-2.332-1.26-3.428-2.8-1.287-1.82-2.323-4.63-2.323-7.28 0-4.28 2.797-6.55 5.552-6.55 1.448 0 2.675.95 3.6.95.865 0 2.222-1.01 3.902-1.01.613 0 2.886.06 4.374 2.19-.13.09-2.383 1.37-2.383 4.19 0 3.26 2.854 4.42 2.955 4.45Z" />
-    </svg>
-  );
-}
-
 export function AuthModal({ open, reason, onClose, onOpenPrivacy }: AuthModalProps) {
   const {
     signInWithGoogle,
-    signInWithApple,
     signInWithEmailPassword,
     signUpWithEmailPassword,
     sendPasswordReset,
     authBusy,
     authError,
+    emailAuthDisabled,
     clearAuthError,
   } = useAuth();
-  const [activeProvider, setActiveProvider] = useState<'google' | 'apple' | 'email' | null>(null);
+
+  const [activeProvider, setActiveProvider] = useState<'google' | 'email' | null>(null);
   const [emailMode, setEmailMode] = useState<'signin' | 'signup'>('signin');
+  const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [inlineNotice, setInlineNotice] = useState<string | null>(null);
   const [inlineError, setInlineError] = useState<string | null>(null);
 
+  const wasOpenRef = useRef(false);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  // Reset local form feedback only when the modal transitions from closed -> open.
+  // Never clear authError on parent re-renders while the dialog stays open.
+  useEffect(() => {
+    if (open && !wasOpenRef.current) {
+      clearAuthError();
+      setInlineNotice(null);
+      setInlineError(null);
+      setActiveProvider(null);
+    }
+    wasOpenRef.current = open;
+  }, [open, clearAuthError]);
+
   useEffect(() => {
     if (!open) return;
-    clearAuthError();
-    setInlineNotice(null);
-    setInlineError(null);
-    setActiveProvider(null);
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         clearAuthError();
-        onClose();
+        onCloseRef.current();
       }
     };
     document.addEventListener('keydown', handleEsc);
     return () => document.removeEventListener('keydown', handleEsc);
-  }, [open, onClose, clearAuthError]);
+  }, [open, clearAuthError]);
 
   const handleClose = () => {
     clearAuthError();
@@ -94,21 +101,11 @@ export function AuthModal({ open, reason, onClose, onOpenPrivacy }: AuthModalPro
   };
 
   const handleGoogleSignIn = async () => {
+    clearAuthError();
     setInlineNotice(null);
     setInlineError(null);
     setActiveProvider('google');
     const ok = await signInWithGoogle();
-    setActiveProvider(null);
-    if (ok) {
-      onClose();
-    }
-  };
-
-  const handleAppleSignIn = async () => {
-    setInlineNotice(null);
-    setInlineError(null);
-    setActiveProvider('apple');
-    const ok = await signInWithApple();
     setActiveProvider(null);
     if (ok) {
       onClose();
@@ -136,12 +133,17 @@ export function AuthModal({ open, reason, onClose, onOpenPrivacy }: AuthModalPro
     setActiveProvider('email');
     const ok =
       emailMode === 'signup'
-        ? await signUpWithEmailPassword(emailCheck.normalized, password)
+        ? await signUpWithEmailPassword(
+            emailCheck.normalized,
+            password,
+            displayName.trim() || undefined,
+          )
         : await signInWithEmailPassword(emailCheck.normalized, password);
     setActiveProvider(null);
 
     if (ok) {
       setPassword('');
+      setDisplayName('');
       onClose();
     }
   };
@@ -170,14 +172,18 @@ export function AuthModal({ open, reason, onClose, onOpenPrivacy }: AuthModalPro
     }
   };
 
-  const toggleEmailMode = () => {
+  const switchEmailMode = (nextMode: 'signin' | 'signup') => {
+    if (nextMode === emailMode) return;
     clearAuthError();
     setInlineNotice(null);
     setInlineError(null);
-    setEmailMode((prev) => (prev === 'signin' ? 'signup' : 'signin'));
+    setEmailMode(nextMode);
   };
 
-  const visibleError = authError || inlineError;
+  const visibleError = inlineError || authError;
+  const consoleProvidersUrl = `https://console.firebase.google.com/project/${encodeURIComponent(
+    firebaseConfig.projectId,
+  )}/authentication/providers`;
 
   return (
     <AnimatePresence>
@@ -199,7 +205,7 @@ export function AuthModal({ open, reason, onClose, onOpenPrivacy }: AuthModalPro
             exit={{ opacity: 0, scale: 0.94, y: 14 }}
             transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
             onClick={(e) => e.stopPropagation()}
-            className="relative w-full max-w-[400px] rounded-3xl liquid-glass-elevated p-6 sm:p-7 space-y-4 overflow-hidden"
+            className="relative w-full max-w-[400px] max-h-[92vh] overflow-y-auto rounded-3xl liquid-glass-elevated p-6 sm:p-7 space-y-4"
           >
             {/* Subtle Liquid Specular Top Highlight */}
             <div
@@ -230,8 +236,8 @@ export function AuthModal({ open, reason, onClose, onOpenPrivacy }: AuthModalPro
               </p>
             </div>
 
-            {/* Stacked Pill Glass Buttons (Google & Apple) */}
-            <div className="space-y-2.5 pt-1">
+            {/* Continue with Google */}
+            <div className="pt-1">
               <button
                 type="button"
                 disabled={authBusy}
@@ -249,24 +255,6 @@ export function AuthModal({ open, reason, onClose, onOpenPrivacy }: AuthModalPro
                     : 'Continue with Google'}
                 </span>
               </button>
-
-              <button
-                type="button"
-                disabled={authBusy}
-                onClick={() => void handleAppleSignIn()}
-                className="w-full h-11 rounded-full liquid-glass-btn px-4 inline-flex items-center justify-center gap-2.5 text-sm font-medium text-slate-900 dark:text-white disabled:opacity-60"
-              >
-                {authBusy && activeProvider === 'apple' ? (
-                  <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-                ) : (
-                  <AppleMark />
-                )}
-                <span>
-                  {authBusy && activeProvider === 'apple'
-                    ? 'Connecting to Apple…'
-                    : 'Continue with Apple'}
-                </span>
-              </button>
             </div>
 
             {/* OR Divider */}
@@ -278,8 +266,62 @@ export function AuthModal({ open, reason, onClose, onOpenPrivacy }: AuthModalPro
               <div className="h-px flex-1 bg-slate-300/70 dark:bg-white/15" />
             </div>
 
+            {/* Clear Sign in / Create account Tabs */}
+            <div
+              role="tablist"
+              aria-label="Email authentication mode"
+              className="grid grid-cols-2 gap-1 p-1 rounded-2xl liquid-glass"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={emailMode === 'signin'}
+                disabled={authBusy}
+                onClick={() => switchEmailMode('signin')}
+                className={`h-9 rounded-xl text-xs font-semibold transition-all duration-150 ${
+                  emailMode === 'signin'
+                    ? 'liquid-glass-btn-primary text-white'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                Sign in
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={emailMode === 'signup'}
+                disabled={authBusy}
+                onClick={() => switchEmailMode('signup')}
+                className={`h-9 rounded-xl text-xs font-semibold transition-all duration-150 ${
+                  emailMode === 'signup'
+                    ? 'liquid-glass-btn-primary text-white'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                Create account
+              </button>
+            </div>
+
             {/* Email + Password Form */}
             <form onSubmit={(e) => void handleEmailSubmit(e)} noValidate className="space-y-2.5">
+              {emailMode === 'signup' && (
+                <div>
+                  <label htmlFor="auth-name-input" className="sr-only">
+                    Full name (optional)
+                  </label>
+                  <input
+                    id="auth-name-input"
+                    type="text"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    placeholder="Full name (optional)"
+                    autoComplete="name"
+                    maxLength={80}
+                    className="w-full h-11 px-4 rounded-2xl bg-white/75 dark:bg-slate-950/75 border border-slate-300/70 dark:border-white/15 text-sm text-slate-900 dark:text-white placeholder:text-slate-500 dark:placeholder:text-slate-400 backdrop-blur-md focus:outline-none focus:ring-2 focus:ring-slate-900/30 dark:focus:ring-white/30 transition-all"
+                  />
+                </div>
+              )}
+
               <div>
                 <label htmlFor="auth-email-input" className="sr-only">
                   Email address
@@ -295,7 +337,7 @@ export function AuthModal({ open, reason, onClose, onOpenPrivacy }: AuthModalPro
                   }}
                   placeholder="Email address"
                   autoComplete="email"
-                  className="w-full h-11 px-4 rounded-full bg-white/70 dark:bg-slate-950/75 border border-slate-300/70 dark:border-white/15 text-sm text-slate-900 dark:text-white placeholder:text-slate-500 dark:placeholder:text-slate-400 backdrop-blur-md focus:outline-none focus:ring-2 focus:ring-blue-500/60 transition-all"
+                  className="w-full h-11 px-4 rounded-2xl bg-white/75 dark:bg-slate-950/75 border border-slate-300/70 dark:border-white/15 text-sm text-slate-900 dark:text-white placeholder:text-slate-500 dark:placeholder:text-slate-400 backdrop-blur-md focus:outline-none focus:ring-2 focus:ring-slate-900/30 dark:focus:ring-white/30 transition-all"
                 />
               </div>
 
@@ -314,7 +356,7 @@ export function AuthModal({ open, reason, onClose, onOpenPrivacy }: AuthModalPro
                   }}
                   placeholder={emailMode === 'signup' ? 'Create password (6+ chars)' : 'Password'}
                   autoComplete={emailMode === 'signup' ? 'new-password' : 'current-password'}
-                  className="w-full h-11 pl-4 pr-11 rounded-full bg-white/70 dark:bg-slate-950/75 border border-slate-300/70 dark:border-white/15 text-sm text-slate-900 dark:text-white placeholder:text-slate-500 dark:placeholder:text-slate-400 backdrop-blur-md focus:outline-none focus:ring-2 focus:ring-blue-500/60 transition-all"
+                  className="w-full h-11 pl-4 pr-11 rounded-2xl bg-white/75 dark:bg-slate-950/75 border border-slate-300/70 dark:border-white/15 text-sm text-slate-900 dark:text-white placeholder:text-slate-500 dark:placeholder:text-slate-400 backdrop-blur-md focus:outline-none focus:ring-2 focus:ring-slate-900/30 dark:focus:ring-white/30 transition-all"
                 />
                 <button
                   type="button"
@@ -326,19 +368,8 @@ export function AuthModal({ open, reason, onClose, onOpenPrivacy }: AuthModalPro
                 </button>
               </div>
 
-              <div className="flex items-center justify-between gap-2 px-1.5 text-xs">
-                <button
-                  type="button"
-                  disabled={authBusy}
-                  onClick={toggleEmailMode}
-                  className="font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition-colors disabled:opacity-60"
-                >
-                  {emailMode === 'signin'
-                    ? 'New here? Create account'
-                    : 'Already have an account? Sign in'}
-                </button>
-
-                {emailMode === 'signin' && (
+              {emailMode === 'signin' && (
+                <div className="flex justify-end px-1 text-xs">
                   <button
                     type="button"
                     disabled={authBusy}
@@ -347,8 +378,8 @@ export function AuthModal({ open, reason, onClose, onOpenPrivacy }: AuthModalPro
                   >
                     Forgot password?
                   </button>
-                )}
-              </div>
+                </div>
+              )}
 
               <button
                 type="submit"
@@ -378,13 +409,34 @@ export function AuthModal({ open, reason, onClose, onOpenPrivacy }: AuthModalPro
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -4 }}
                   role={visibleError ? 'alert' : 'status'}
-                  className={`rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed backdrop-blur-md border ${
+                  className={`rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed backdrop-blur-md border space-y-2 ${
                     visibleError
                       ? 'border-red-300/80 dark:border-red-900/60 bg-red-50/85 dark:bg-red-950/45 text-red-700 dark:text-red-300'
-                      : 'border-blue-300/70 dark:border-blue-500/30 bg-blue-50/80 dark:bg-blue-950/40 text-slate-700 dark:text-slate-200'
+                      : 'border-slate-300/70 dark:border-white/20 bg-white/80 dark:bg-white/10 text-slate-700 dark:text-slate-200'
                   }`}
                 >
-                  {visibleError || inlineNotice}
+                  <p>{visibleError || inlineNotice}</p>
+                  {emailAuthDisabled && visibleError && (
+                    <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                      <a
+                        href={consoleProvidersUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 font-semibold underline underline-offset-2 hover:opacity-80"
+                      >
+                        <span>Open Firebase Sign-in Providers</span>
+                        <ExternalLink className="w-3 h-3 shrink-0" />
+                      </a>
+                      <button
+                        type="button"
+                        disabled={authBusy}
+                        onClick={() => void handleGoogleSignIn()}
+                        className="px-2.5 py-1 rounded-lg liquid-glass-btn-primary text-white text-[11px] font-semibold"
+                      >
+                        Use Google instead
+                      </button>
+                    </div>
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>
@@ -395,7 +447,7 @@ export function AuthModal({ open, reason, onClose, onOpenPrivacy }: AuthModalPro
               <button
                 type="button"
                 onClick={onOpenPrivacy}
-                className="font-medium text-slate-800 dark:text-slate-200 underline underline-offset-2 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                className="font-medium text-slate-800 dark:text-slate-200 underline underline-offset-2 hover:text-slate-950 dark:hover:text-white transition-colors"
               >
                 Privacy Policy
               </button>
@@ -407,3 +459,4 @@ export function AuthModal({ open, reason, onClose, onOpenPrivacy }: AuthModalPro
     </AnimatePresence>
   );
 }
+

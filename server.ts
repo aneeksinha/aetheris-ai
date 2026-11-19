@@ -145,7 +145,7 @@ async function startServer() {
     // Sign-in is required when uploading files/attachments
     if (attachment && !verifiedUser) {
       res.status(401).json({
-        error: 'Sign in with Google or Apple is required to analyze uploaded files.',
+        error: 'Sign in with Google or email & password is required to analyze uploaded files.',
       });
       return;
     }

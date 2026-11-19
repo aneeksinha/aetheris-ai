@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion, MotionConfig } from 'motion/react';
 import { BarChart3, KeyRound, MailCheck, Menu, Moon, PanelLeftOpen, RefreshCw, Sun, UserCheck } from 'lucide-react';
 import { AnalyticsDashboard } from './components/AnalyticsDashboard';
@@ -52,6 +52,7 @@ function AetherisApp() {
     isOwner,
     hasUnlimitedAccess,
     authBusy,
+    authError,
     resendVerificationEmail,
     refreshVerificationStatus,
   } = useAuth();
@@ -84,7 +85,15 @@ function AetherisApp() {
   );
 
   const abortRef = useRef<AbortController | null>(null);
+  const activeChatIdRef = useRef<string | null>(null);
+  activeChatIdRef.current = activeChatId;
   const isCloudSynced = Boolean(user && isEmailVerified);
+
+  useEffect(() => {
+    if (!user || isEmailVerified) {
+      setVerificationNote(null);
+    }
+  }, [user, isEmailVerified]);
 
   useEffect(() => {
     if (!user || !isEmailVerified) {
@@ -120,10 +129,16 @@ function AetherisApp() {
     [displayedUsageLogs],
   );
 
-  const openAuthModal = (reason: AuthGateReason) => {
+  const openAuthModal = useCallback((reason: AuthGateReason) => {
     setAuthModalReason(reason);
     setAuthModalOpen(true);
-  };
+  }, []);
+
+  const closeAuthModal = useCallback(() => setAuthModalOpen(false), []);
+  const openProfileModal = useCallback(() => setProfileModalOpen(true), []);
+  const closeProfileModal = useCallback(() => setProfileModalOpen(false), []);
+  const openPrivacyModal = useCallback(() => setPrivacyModalOpen(true), []);
+  const closePrivacyModal = useCallback(() => setPrivacyModalOpen(false), []);
 
   const handleNewChat = () => {
     abortRef.current?.abort();
@@ -137,9 +152,11 @@ function AetherisApp() {
     abortRef.current?.abort();
     setIsGenerating(false);
     setActiveChatId(chatId);
+    activeChatIdRef.current = chatId;
     setLoadingThread(true);
     try {
       const loaded = await loadChatMessages(chatId, user.uid);
+      if (activeChatIdRef.current !== chatId) return;
       setMessages(loaded);
       const chatMeta = savedChats.find((c) => c.id === chatId);
       if (chatMeta) {
@@ -148,16 +165,22 @@ function AetherisApp() {
     } catch (err) {
       console.error('Failed to load chat thread:', err);
     } finally {
-      setLoadingThread(false);
+      if (activeChatIdRef.current === chatId) {
+        setLoadingThread(false);
+      }
     }
   };
 
   const handleDeleteChat = async (chatId: string) => {
     if (!user || !isCloudSynced) return;
-    await deleteChatSession(chatId, user.uid);
-    if (activeChatId === chatId) {
-      setActiveChatId(null);
-      setMessages([]);
+    try {
+      await deleteChatSession(chatId, user.uid);
+      if (activeChatId === chatId) {
+        setActiveChatId(null);
+        setMessages([]);
+      }
+    } catch (err) {
+      console.error('Failed to delete chat session:', err);
     }
   };
 
@@ -253,13 +276,17 @@ function AetherisApp() {
 
           while (true) {
             const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
+            if (value) {
+              buffer += decoder.decode(value, { stream: !done });
+            } else if (done) {
+              buffer += decoder.decode();
+            }
 
-            const lines = buffer.split('\n\n');
-            buffer = lines.pop() || '';
+            const frames = buffer.split('\n\n');
+            buffer = done ? '' : frames.pop() || '';
 
-            for (const frame of lines) {
+            for (const frame of frames) {
+              if (!frame.trim()) continue;
               const dataLine = frame
                 .split('\n')
                 .find((l) => l.startsWith('data: '));
@@ -299,6 +326,8 @@ function AetherisApp() {
                 throw new Error(payload.message || 'Model generation failed.');
               }
             }
+
+            if (done) break;
           }
           break;
         } catch (attemptErr) {
@@ -387,28 +416,36 @@ function AetherisApp() {
         latencyMs,
         hasAttachment: Boolean(attachment),
         status,
+      }).catch((err) => {
+        console.error('Usage log persistence failed:', err);
       });
 
       if (chatIdForPersistence && status === 'completed') {
-        await pendingUserWrite.catch((err) =>
-          console.error('Background user turn persistence failed:', err),
-        );
-        const existingTokens = historyForRequest.reduce((acc, m) => acc + (m.tokens || 0), 0);
-        await appendChatMessage({
-          chatId: chatIdForPersistence,
-          messageId: assistantMessageId,
-          userId: user.uid,
-          role: 'assistant',
-          content: fullText || 'No text returned by model.',
-          modelId: selectedModelId,
-          tokens: totalTokens,
-          latencyMs,
-        });
-        await updateChatSummary({
-          chatId: chatIdForPersistence,
-          modelId: selectedModelId,
-          messageCount: historyForRequest.length + 1,
-          totalTokens: existingTokens + totalTokens,
+        try {
+          await pendingUserWrite;
+          const existingTokens = historyForRequest.reduce((acc, m) => acc + (m.tokens || 0), 0);
+          await appendChatMessage({
+            chatId: chatIdForPersistence,
+            messageId: assistantMessageId,
+            userId: user.uid,
+            role: 'assistant',
+            content: fullText || 'No text returned by model.',
+            modelId: selectedModelId,
+            tokens: totalTokens,
+            latencyMs,
+          });
+          await updateChatSummary({
+            chatId: chatIdForPersistence,
+            modelId: selectedModelId,
+            messageCount: historyForRequest.length + 1,
+            totalTokens: existingTokens + totalTokens,
+          });
+        } catch (err) {
+          console.error('Assistant turn persistence failed:', err);
+        }
+      } else {
+        void pendingUserWrite.catch((err) => {
+          console.error('Background user turn persistence failed:', err);
         });
       }
     } else {
@@ -435,7 +472,7 @@ function AetherisApp() {
         id: makeSafeId('msg'),
         role: 'assistant',
         content: !user
-          ? `Guest daily limit of ${GUEST_DAILY_REQUEST_LIMIT} requests reached for today. Sign in with Google or Apple to unlock ${SIGNED_IN_DAILY_REQUEST_LIMIT} requests/day, file uploads, and synced history.`
+          ? `Guest daily limit of ${GUEST_DAILY_REQUEST_LIMIT} requests reached for today. Sign in with Google or email & password to unlock ${SIGNED_IN_DAILY_REQUEST_LIMIT} requests/day, file uploads, and synced history.`
           : `Daily limit of ${dailyLimit} requests reached for today. Your free quota resets at midnight.`,
         modelId: selectedModelId,
         tokens: 0,
@@ -506,7 +543,9 @@ function AetherisApp() {
           attachmentName: attachment?.name,
           attachmentType: attachment?.mimeType,
         });
-      })();
+      })().catch((err) => {
+        console.error('User turn persistence failed:', err);
+      });
     }
 
     await runCompletion(
@@ -558,8 +597,8 @@ function AetherisApp() {
           onSelectChat={(id) => void handleSelectChat(id)}
           onDeleteChat={(id) => void handleDeleteChat(id)}
           onOpenAuth={openAuthModal}
-          onOpenProfile={() => setProfileModalOpen(true)}
-          onOpenPrivacy={() => setPrivacyModalOpen(true)}
+          onOpenProfile={openProfileModal}
+          onOpenPrivacy={openPrivacyModal}
           desktopOpen={desktopSidebarOpen}
           onCloseDesktop={() => setDesktopSidebarOpen(false)}
           mobileOpen={mobileSidebarOpen}
@@ -568,8 +607,8 @@ function AetherisApp() {
 
         <div className="flex flex-col flex-1 min-w-0 h-full">
           {/* Top Header Bar (Single Row, Liquid Glass 3-Zone Contract) */}
-          <header className="h-14 shrink-0 px-3 sm:px-6 liquid-glass border-x-0 border-t-0 rounded-none flex items-center justify-between gap-4 relative z-20">
-            <div className="flex items-center gap-2.5 min-w-0">
+          <header className="h-14 shrink-0 px-3 sm:px-6 liquid-glass border-x-0 border-t-0 rounded-none flex items-center justify-between gap-2 sm:gap-4 relative z-20">
+            <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
               {!desktopSidebarOpen && (
                 <button
                   type="button"
@@ -629,7 +668,7 @@ function AetherisApp() {
               {isOwner && (
                 <button
                   type="button"
-                  onClick={() => setProfileModalOpen(true)}
+                  onClick={openProfileModal}
                   className="min-h-[40px] inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl liquid-glass-btn-primary text-white text-xs font-semibold whitespace-nowrap shrink-0"
                 >
                   <KeyRound className="w-3.5 h-3.5 shrink-0" />
@@ -641,7 +680,7 @@ function AetherisApp() {
               {user ? (
                 <button
                   type="button"
-                  onClick={() => setProfileModalOpen(true)}
+                  onClick={openProfileModal}
                   aria-label="Open account profile"
                   className="min-h-[40px] inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl liquid-glass-btn text-xs font-medium text-slate-800 dark:text-slate-200 whitespace-nowrap shrink-0"
                 >
@@ -681,7 +720,7 @@ function AetherisApp() {
                       setVerificationNote(
                         sent
                           ? `Verification link sent to ${user.email || 'your email'}.`
-                          : 'Could not resend verification email right now.',
+                          : authError || 'Could not resend verification email right now.',
                       );
                     });
                   }}
@@ -759,22 +798,22 @@ function AetherisApp() {
         <AuthModal
           open={authModalOpen}
           reason={authModalReason}
-          onClose={() => setAuthModalOpen(false)}
-          onOpenPrivacy={() => setPrivacyModalOpen(true)}
+          onClose={closeAuthModal}
+          onOpenPrivacy={openPrivacyModal}
         />
 
         <ProfileModal
           open={profileModalOpen}
           todayRequests={todayRequests}
           dailyLimit={dailyLimit}
-          onClose={() => setProfileModalOpen(false)}
+          onClose={closeProfileModal}
           onRequireAuth={openAuthModal}
-          onOpenPrivacy={() => setPrivacyModalOpen(true)}
+          onOpenPrivacy={openPrivacyModal}
         />
 
         <PrivacyPolicyModal
           open={privacyModalOpen}
-          onClose={() => setPrivacyModalOpen(false)}
+          onClose={closePrivacyModal}
         />
       </div>
     </MotionConfig>
