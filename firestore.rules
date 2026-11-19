@@ -1,0 +1,223 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Reusable Hardened Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAppOwner() {
+      return isVerifiedUser() && request.auth.token.email == 'aneeksinha52@gmail.com';
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isOwner(uid) {
+      return isVerifiedUser() && request.auth.uid == uid;
+    }
+
+    // Entity Validation Blueprints
+    function isValidUserProfile(data, expectedUid) {
+      return data.keys().hasAll(['uid', 'displayName', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.uid == expectedUid
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidChatSession(data) {
+      return data.keys().hasAll(['userId', 'title', 'modelId', 'messageCount', 'totalTokens', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['userId', 'title', 'modelId', 'messageCount', 'totalTokens', 'createdAt', 'updatedAt'])
+        && isValidId(data.userId)
+        && (data.userId == request.auth.uid || isAppOwner())
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 160
+        && data.modelId is string && data.modelId.size() >= 1 && data.modelId.size() <= 64
+        && data.messageCount is int && data.messageCount >= 0 && data.messageCount <= 5000
+        && data.totalTokens is int && data.totalTokens >= 0 && data.totalTokens <= 50000000
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidChatMessage(data, expectedChatId) {
+      return data.keys().hasAll(['chatId', 'userId', 'role', 'content', 'modelId', 'tokens', 'latencyMs', 'createdAt'])
+        && data.keys().hasOnly(['chatId', 'userId', 'role', 'content', 'modelId', 'tokens', 'latencyMs', 'attachmentName', 'attachmentType', 'createdAt'])
+        && isValidId(data.chatId)
+        && data.chatId == expectedChatId
+        && isValidId(data.userId)
+        && (data.userId == request.auth.uid || isAppOwner())
+        && data.role is string && data.role in ['user', 'assistant']
+        && data.content is string && data.content.size() >= 1 && data.content.size() <= 50000
+        && data.modelId is string && data.modelId.size() >= 1 && data.modelId.size() <= 64
+        && data.tokens is int && data.tokens >= 0 && data.tokens <= 1000000
+        && data.latencyMs is int && data.latencyMs >= 0 && data.latencyMs <= 300000
+        && (!('attachmentName' in data) || (data.attachmentName is string && data.attachmentName.size() <= 180))
+        && (!('attachmentType' in data) || (data.attachmentType is string && data.attachmentType.size() <= 80))
+        && data.createdAt is timestamp;
+    }
+
+    function isValidUsageLog(data) {
+      return data.keys().hasAll([
+          'userId', 'modelId', 'modelLabel', 'promptTokens', 'completionTokens',
+          'totalTokens', 'latencyMs', 'hasAttachment', 'status', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'userId', 'modelId', 'modelLabel', 'promptTokens', 'completionTokens',
+          'totalTokens', 'latencyMs', 'hasAttachment', 'status', 'createdAt'
+        ])
+        && isValidId(data.userId)
+        && (data.userId == request.auth.uid || isAppOwner())
+        && data.modelId is string && data.modelId.size() >= 1 && data.modelId.size() <= 64
+        && data.modelLabel is string && data.modelLabel.size() >= 1 && data.modelLabel.size() <= 80
+        && data.promptTokens is int && data.promptTokens >= 0 && data.promptTokens <= 1000000
+        && data.completionTokens is int && data.completionTokens >= 0 && data.completionTokens <= 1000000
+        && data.totalTokens is int && data.totalTokens >= 0 && data.totalTokens <= 2000000
+        && data.latencyMs is int && data.latencyMs >= 0 && data.latencyMs <= 300000
+        && data.hasAttachment is bool
+        && data.status is string && data.status in ['completed', 'error']
+        && data.createdAt is timestamp;
+    }
+
+    function isValidUnlimitedGrant(data) {
+      return data.keys().hasAll(['email', 'grantedBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['email', 'grantedBy', 'note', 'createdAt', 'updatedAt'])
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
+        && data.email.matches('^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$')
+        && isValidId(data.grantedBy)
+        && data.grantedBy == request.auth.uid
+        && (!('note' in data) || (data.note is string && data.note.size() <= 120))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Users Collection
+    match /users/{userId} {
+      allow list: if isAppOwner();
+      allow get: if isValidId(userId) && (isOwner(userId) || isAppOwner());
+      allow create: if isValidId(userId)
+        && (isOwner(userId) || isAppOwner())
+        && isValidUserProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId)
+        && isValidUserProfile(incoming(), userId)
+        && (isOwner(userId) || isAppOwner())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'updatedAt']);
+      allow delete: if isValidId(userId) && (isOwner(userId) || isAppOwner());
+    }
+
+    // Chats Collection
+    match /chats/{chatId} {
+      allow list: if isVerifiedUser() && (resource.data.userId == request.auth.uid || isAppOwner());
+      allow get: if isValidId(chatId) && isVerifiedUser() && (existing().userId == request.auth.uid || isAppOwner());
+      allow create: if isValidId(chatId)
+        && isVerifiedUser()
+        && isValidChatSession(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(chatId)
+        && isVerifiedUser()
+        && isValidChatSession(incoming())
+        && (existing().userId == request.auth.uid || isAppOwner())
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'modelId', 'messageCount', 'totalTokens', 'updatedAt']);
+      allow delete: if isValidId(chatId) && isVerifiedUser() && (existing().userId == request.auth.uid || isAppOwner());
+
+      // Messages Subcollection (Master Gate via parent chat)
+      match /messages/{messageId} {
+        function parentChatOwned() {
+          return exists(/databases/$(database)/documents/chats/$(chatId))
+            && (get(/databases/$(database)/documents/chats/$(chatId)).data.userId == request.auth.uid || isAppOwner());
+        }
+
+        allow list: if isValidId(chatId) && isVerifiedUser() && (resource.data.userId == request.auth.uid || isAppOwner());
+        allow get: if isValidId(chatId) && isValidId(messageId) && isVerifiedUser() && ((existing().userId == request.auth.uid && parentChatOwned()) || isAppOwner());
+        allow create: if isValidId(chatId)
+          && isValidId(messageId)
+          && isVerifiedUser()
+          && isValidChatMessage(incoming(), chatId)
+          && incoming().createdAt == request.time
+          && parentChatOwned();
+        allow update: if isValidId(chatId)
+          && isValidId(messageId)
+          && isValidChatMessage(incoming(), chatId)
+          && isAppOwner()
+          && incoming().chatId == existing().chatId
+          && incoming().userId == existing().userId
+          && incoming().createdAt == existing().createdAt
+          && incoming().diff(existing()).affectedKeys().hasOnly(['content', 'modelId', 'tokens', 'latencyMs', 'attachmentName', 'attachmentType']);
+        allow delete: if isValidId(chatId) && isValidId(messageId) && isVerifiedUser() && ((existing().userId == request.auth.uid && parentChatOwned()) || isAppOwner());
+      }
+    }
+
+    // Usage Logs Collection
+    match /usageLogs/{logId} {
+      allow list: if isVerifiedUser() && (resource.data.userId == request.auth.uid || isAppOwner());
+      allow get: if isValidId(logId) && isVerifiedUser() && (existing().userId == request.auth.uid || isAppOwner());
+      allow create: if isValidId(logId)
+        && isVerifiedUser()
+        && isValidUsageLog(incoming())
+        && incoming().createdAt == request.time;
+      allow update: if isValidId(logId)
+        && isValidUsageLog(incoming())
+        && isAppOwner()
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['modelId', 'modelLabel', 'promptTokens', 'completionTokens', 'totalTokens', 'latencyMs', 'hasAttachment', 'status']);
+      allow delete: if isValidId(logId) && isVerifiedUser() && (existing().userId == request.auth.uid || isAppOwner());
+    }
+
+    // Owner-Managed Unlimited Access Grants Collection
+    match /unlimitedGrants/{grantId} {
+      allow list: if isAppOwner()
+        || (isVerifiedUser()
+          && request.auth.token.email is string
+          && resource.data.email == request.auth.token.email.lower());
+      allow get: if isValidId(grantId)
+        && (isAppOwner()
+          || (isVerifiedUser()
+            && request.auth.token.email is string
+            && existing().email == request.auth.token.email.lower()));
+      allow create: if isValidId(grantId)
+        && isAppOwner()
+        && isValidUnlimitedGrant(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(grantId)
+        && isValidUnlimitedGrant(incoming())
+        && isAppOwner()
+        && incoming().email == existing().email
+        && incoming().grantedBy == existing().grantedBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['note', 'updatedAt']);
+      allow delete: if isValidId(grantId) && isAppOwner();
+    }
+  }
+}

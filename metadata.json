@@ -1,0 +1,8 @@
+{
+  "name": "Aetheris",
+  "description": "Fast open-access AI chat workspace with real-time search grounding, account-gated file uploads and persistent chat history, and usage analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,0 +1,232 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated user account preferences for synced chat history and file uploads.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "displayName", "createdAt", "updatedAt"]
+    },
+    "ChatSession": {
+      "title": "ChatSession",
+      "description": "A saved multi-turn AI conversation owned by an authenticated user.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "modelId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "messageCount": {
+          "type": "integer"
+        },
+        "totalTokens": {
+          "type": "integer"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["userId", "title", "modelId", "messageCount", "totalTokens", "createdAt", "updatedAt"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Individual prompt or assistant response belonging to a saved chat session.",
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["user", "assistant"]
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50000
+        },
+        "modelId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "tokens": {
+          "type": "integer"
+        },
+        "latencyMs": {
+          "type": "integer"
+        },
+        "attachmentName": {
+          "type": "string",
+          "maxLength": 180
+        },
+        "attachmentType": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["chatId", "userId", "role", "content", "modelId", "tokens", "latencyMs", "createdAt"]
+    },
+    "UsageLog": {
+      "title": "UsageLog",
+      "description": "Per-request token, latency, and model usage event for user analytics and daily request quotas (30 guest, 100 signed-in, unlimited for verified owner and granted emails).",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "modelId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "modelLabel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "promptTokens": {
+          "type": "integer"
+        },
+        "completionTokens": {
+          "type": "integer"
+        },
+        "totalTokens": {
+          "type": "integer"
+        },
+        "latencyMs": {
+          "type": "integer"
+        },
+        "hasAttachment": {
+          "type": "boolean"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["completed", "error"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "userId",
+        "modelId",
+        "modelLabel",
+        "promptTokens",
+        "completionTokens",
+        "totalTokens",
+        "latencyMs",
+        "hasAttachment",
+        "status",
+        "createdAt"
+      ]
+    },
+    "UnlimitedGrant": {
+      "title": "UnlimitedGrant",
+      "description": "Owner-managed allowlist record granting unlimited daily requests to a specific verified email address.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 160
+        },
+        "grantedBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["email", "grantedBy", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Stores authenticated user profile metadata."
+    },
+    "/chats/{chatId}": {
+      "schema": { "$ref": "#/entities/ChatSession" },
+      "description": "Stores saved conversation headers owned by authenticated users."
+    },
+    "/chats/{chatId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ChatMessage" },
+      "description": "Stores ordered turns within a user-owned chat session."
+    },
+    "/usageLogs/{logId}": {
+      "schema": { "$ref": "#/entities/UsageLog" },
+      "description": "Stores per-request model usage analytics for authenticated users."
+    },
+    "/unlimitedGrants/{grantId}": {
+      "schema": { "$ref": "#/entities/UnlimitedGrant" },
+      "description": "Stores email addresses granted unlimited daily request access by the verified workspace owner."
+    }
+  }
+}
