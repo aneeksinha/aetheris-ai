@@ -46,7 +46,7 @@ export function ModelSelector({
         aria-expanded={open}
         aria-label="Active AI model"
         onClick={() => setOpen((prev) => !prev)}
-        className="inline-flex items-center gap-1.5 sm:gap-2 min-h-[40px] max-w-[125px] sm:max-w-none px-2.5 sm:px-3.5 py-1.5 rounded-xl liquid-glass-blur hover:border-slate-900/25 dark:hover:border-white/35 text-xs sm:text-sm font-medium text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 dark:focus-visible:ring-white/40 whitespace-nowrap shrink-0 disabled:opacity-60"
+        className="inline-flex items-center gap-1 sm:gap-2 min-h-[40px] max-w-[116px] sm:max-w-none px-2 sm:px-3.5 py-1.5 rounded-xl liquid-glass-blur hover:border-slate-900/25 dark:hover:border-white/35 text-xs sm:text-sm font-medium text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 dark:focus-visible:ring-white/40 whitespace-nowrap shrink-0 disabled:opacity-60"
       >
         <Cpu className="w-4 h-4 text-slate-700 dark:text-slate-200 shrink-0" />
         <span className="sm:hidden truncate">{activeModel.shortName}</span>

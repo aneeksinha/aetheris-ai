@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { MessageSquareHeart, ShieldCheck, Star, Trash2, X } from 'lucide-react';
+import { ShieldCheck, Star, Trash2, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import {
   computeReviewStats,
@@ -103,7 +103,7 @@ export function ReviewsModal({ open, onClose, onRequireAuth }: ReviewsModalProps
       });
       setComment('');
       setRating(5);
-      setFormNotice('Thanks! Your review is now live on the feed.');
+      setFormNotice('Thanks! Your review is now live.');
     } catch (err) {
       setFormError(
         err instanceof Error ? err.message : 'Could not post review right now. Please try again.',
@@ -154,14 +154,14 @@ export function ReviewsModal({ open, onClose, onRequireAuth }: ReviewsModalProps
             <div className="flex items-center justify-between gap-4 px-6 py-4 border-b border-slate-200/60 dark:border-white/10 shrink-0">
               <div className="flex items-center gap-3 min-w-0">
                 <div className="w-10 h-10 rounded-xl liquid-glass flex items-center justify-center shrink-0">
-                  <MessageSquareHeart className="w-4 h-4 text-slate-900 dark:text-slate-100" />
+                  <Star className="w-4 h-4 fill-amber-400 text-amber-500" />
                 </div>
                 <div className="min-w-0">
                   <h2
                     id="reviews-modal-title"
                     className="font-display text-base font-semibold text-slate-900 dark:text-slate-100 truncate"
                   >
-                    AI Reviews Feed
+                    AI Reviews
                   </h2>
                   <p className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
                     {stats.totalCount > 0
@@ -174,7 +174,7 @@ export function ReviewsModal({ open, onClose, onRequireAuth }: ReviewsModalProps
               <button
                 type="button"
                 onClick={onClose}
-                aria-label="Close AI reviews feed"
+                aria-label="Close AI reviews"
                 className="p-2 rounded-xl liquid-glass-btn text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 shrink-0"
               >
                 <X className="w-4 h-4" />

@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion, MotionConfig } from 'motion/react';
 import {
-  BarChart3,
   KeyRound,
   MailCheck,
   Menu,
-  MessageSquareHeart,
   Moon,
   PanelLeftOpen,
   RefreshCw,
+  Star,
   Sun,
   UserCheck,
 } from 'lucide-react';
@@ -640,8 +639,8 @@ function AetherisApp() {
 
         <div className="flex flex-col flex-1 min-w-0 h-full">
           {/* Top Header Bar (Single Row, Liquid Glass 3-Zone Contract) */}
-          <header className="h-14 shrink-0 px-2.5 sm:px-6 liquid-glass border-x-0 border-t-0 rounded-none flex items-center justify-between gap-1.5 sm:gap-4 relative z-20">
-            <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0 flex-1">
+          <header className="h-14 shrink-0 px-2 sm:px-6 liquid-glass border-x-0 border-t-0 rounded-none flex items-center justify-between gap-1 sm:gap-4 relative z-20">
+            <div className="flex items-center gap-1 sm:gap-2.5 min-w-0 flex-1">
               {!desktopSidebarOpen && (
                 <button
                   type="button"
@@ -677,26 +676,15 @@ function AetherisApp() {
               )}
             </div>
 
-            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
               <button
                 type="button"
                 onClick={openReviewsModal}
-                aria-label="Open AI reviews feed"
-                className="inline-flex items-center gap-1.5 min-h-[40px] px-2.5 sm:px-3.5 py-1.5 rounded-xl liquid-glass-btn text-xs font-medium text-slate-700 dark:text-slate-200 whitespace-nowrap shrink-0"
+                aria-label="Open AI reviews"
+                className="inline-flex items-center gap-1 sm:gap-1.5 min-h-[40px] px-2 sm:px-3.5 py-1.5 rounded-xl liquid-glass-btn text-xs font-medium text-slate-700 dark:text-slate-200 whitespace-nowrap shrink-0"
               >
-                <MessageSquareHeart className="w-4 h-4 shrink-0" />
-                <span>Feed</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  setActiveView(activeView === 'chat' ? 'dashboard' : 'chat')
-                }
-                className="hidden sm:inline-flex items-center gap-1.5 min-h-[40px] px-3.5 py-1.5 rounded-xl liquid-glass-btn text-xs font-medium text-slate-700 dark:text-slate-200 whitespace-nowrap shrink-0"
-              >
-                <BarChart3 className="w-4 h-4 shrink-0" />
-                <span>{activeView === 'chat' ? 'Usage Analytics' : 'Back to Chat'}</span>
+                <Star className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-amber-400 text-amber-500 shrink-0" />
+                <span>Review</span>
               </button>
 
               <button
@@ -736,7 +724,7 @@ function AetherisApp() {
                 <button
                   type="button"
                   onClick={() => openAuthModal('general')}
-                  className="min-h-[40px] px-3 sm:px-4 py-1.5 rounded-xl liquid-glass-btn-primary text-white text-xs font-semibold whitespace-nowrap shrink-0"
+                  className="min-h-[40px] px-2.5 sm:px-4 py-1.5 rounded-xl liquid-glass-btn-primary text-white text-xs font-semibold whitespace-nowrap shrink-0"
                 >
                   Sign In
                 </button>
