@@ -22,7 +22,8 @@ import {
 } from '../lib/firebase';
 import type { UsageRecord } from '../lib/analytics';
 import { emailToGrantId, normalizeEmail, type ModelId } from '../lib/models';
-import type { ChatMessage, ChatSession, UnlimitedGrant } from '../types/chat';
+import { sanitizeAuthorName, validateReviewInput } from '../lib/reviewsValidation';
+import type { ChatMessage, ChatSession, ReviewItem, UnlimitedGrant } from '../types/chat';
 
 export function makeSafeId(prefix: string): string {
   const uuid =
@@ -411,6 +412,88 @@ export async function revokeUnlimitedEmail(grantId: string): Promise<void> {
   const path = `unlimitedGrants/${grantId}`;
   try {
     await deleteDoc(doc(db, 'unlimitedGrants', grantId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+export function subscribePublicReviews(
+  onUpdate: (reviews: ReviewItem[]) => void,
+  onError: (err: Error) => void,
+): Unsubscribe {
+  const path = 'reviews';
+  const q = query(
+    collection(db, path),
+    where('visibility', '==', 'public'),
+    limit(100),
+  );
+
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const items: ReviewItem[] = snapshot.docs.map((d) => {
+        const data = d.data();
+        return {
+          id: d.id,
+          authorId: String(data.authorId || ''),
+          authorName: sanitizeAuthorName(
+            typeof data.authorName === 'string' ? data.authorName : undefined,
+          ),
+          rating: Math.min(5, Math.max(1, Math.round(Number(data.rating || 5)))),
+          comment: String(data.comment || ''),
+          createdAtMs: timestampToMs(data.createdAt),
+          updatedAtMs: timestampToMs(data.updatedAt),
+        };
+      });
+      items.sort((a, b) => b.createdAtMs - a.createdAtMs);
+      onUpdate(items);
+    },
+    (error) => {
+      if (isFirestoreOfflineError(error)) {
+        onError(error instanceof Error ? error : new Error(String(error)));
+        return;
+      }
+      try {
+        handleFirestoreError(error, OperationType.LIST, path);
+      } catch (wrapped) {
+        onError(wrapped instanceof Error ? wrapped : new Error(String(wrapped)));
+      }
+    },
+  );
+}
+
+export async function submitReview(params: {
+  authorId: string;
+  authorName: string;
+  rating: number;
+  comment: string;
+}): Promise<void> {
+  const checked = validateReviewInput(params.rating, params.comment);
+  if (!checked.valid) {
+    throw new Error(checked.error || 'Invalid review input.');
+  }
+
+  const reviewId = makeSafeId('rev');
+  const path = `reviews/${reviewId}`;
+  try {
+    await setDoc(doc(db, 'reviews', reviewId), {
+      authorId: params.authorId,
+      authorName: sanitizeAuthorName(params.authorName),
+      rating: checked.rating,
+      comment: checked.comment,
+      visibility: 'public',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+}
+
+export async function deleteReview(reviewId: string): Promise<void> {
+  const path = `reviews/${reviewId}`;
+  try {
+    await deleteDoc(doc(db, 'reviews', reviewId));
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
   }

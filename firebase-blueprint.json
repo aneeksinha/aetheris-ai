@@ -205,6 +205,45 @@
         }
       },
       "required": ["email", "grantedBy", "createdAt", "updatedAt"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "Community review and star rating shared in the top-bar AI Feed.",
+      "type": "object",
+      "properties": {
+        "authorId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "authorName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "rating": {
+          "type": "integer"
+        },
+        "comment": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 600
+        },
+        "visibility": {
+          "type": "string",
+          "enum": ["public"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["authorId", "authorName", "rating", "comment", "visibility", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -227,6 +266,10 @@
     "/unlimitedGrants/{grantId}": {
       "schema": { "$ref": "#/entities/UnlimitedGrant" },
       "description": "Stores email addresses granted unlimited daily request access by the verified workspace owner."
+    },
+    "/reviews/{reviewId}": {
+      "schema": { "$ref": "#/entities/Review" },
+      "description": "Stores public non-PII AI reviews and ratings submitted by verified users."
     }
   }
 }

@@ -1,6 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion, MotionConfig } from 'motion/react';
-import { BarChart3, KeyRound, MailCheck, Menu, Moon, PanelLeftOpen, RefreshCw, Sun, UserCheck } from 'lucide-react';
+import {
+  BarChart3,
+  KeyRound,
+  MailCheck,
+  Menu,
+  MessageSquareHeart,
+  Moon,
+  PanelLeftOpen,
+  RefreshCw,
+  Sun,
+  UserCheck,
+} from 'lucide-react';
 import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 import { AuthModal } from './components/AuthModal';
 import { ChatWorkspace } from './components/ChatWorkspace';
@@ -8,6 +19,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { ModelSelector } from './components/ModelSelector';
 import { PrivacyPolicyModal } from './components/PrivacyPolicyModal';
 import { ProfileModal } from './components/ProfileModal';
+import { ReviewsModal } from './components/ReviewsModal';
 import { Sidebar, type ActiveView } from './components/Sidebar';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
@@ -68,6 +80,7 @@ function AetherisApp() {
   const [authModalReason, setAuthModalReason] = useState<AuthGateReason>('general');
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [privacyModalOpen, setPrivacyModalOpen] = useState(false);
+  const [reviewsModalOpen, setReviewsModalOpen] = useState(false);
 
   // Persisted Firestore lists (for verified signed-in users)
   const [savedChats, setSavedChats] = useState<ChatSession[]>([]);
@@ -139,6 +152,8 @@ function AetherisApp() {
   const closeProfileModal = useCallback(() => setProfileModalOpen(false), []);
   const openPrivacyModal = useCallback(() => setPrivacyModalOpen(true), []);
   const closePrivacyModal = useCallback(() => setPrivacyModalOpen(false), []);
+  const openReviewsModal = useCallback(() => setReviewsModalOpen(true), []);
+  const closeReviewsModal = useCallback(() => setReviewsModalOpen(false), []);
 
   const handleNewChat = () => {
     abortRef.current?.abort();
@@ -203,6 +218,7 @@ function AetherisApp() {
     let totalTokens = 0;
     let latencyMs = 0;
     let sources: GroundingSource[] | undefined;
+    let searchFallback = false;
     let respondedBy: string | undefined;
     let status: 'completed' | 'error' = 'completed';
 
@@ -301,6 +317,7 @@ function AetherisApp() {
                 totalTokens?: number;
                 latencyMs?: number;
                 sources?: GroundingSource[];
+                searchFallback?: boolean;
                 message?: string;
               };
 
@@ -321,6 +338,7 @@ function AetherisApp() {
                 sources = Array.isArray(payload.sources) && payload.sources.length > 0
                   ? payload.sources
                   : undefined;
+                searchFallback = Boolean(payload.searchFallback);
                 respondedBy = payload.respondedBy;
               } else if (payload.type === 'error') {
                 throw new Error(payload.message || 'Model generation failed.');
@@ -349,7 +367,21 @@ function AetherisApp() {
       if ((err as Error)?.name === 'AbortError') {
         latencyMs = Math.max(1, Date.now() - startedAt);
         if (!fullText) {
-          fullText = 'Generation stopped.';
+          status = 'error';
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantMessageId
+                ? {
+                    ...m,
+                    content: 'Generation stopped.',
+                    tokens: 0,
+                    latencyMs,
+                    isStreaming: false,
+                    isError: false,
+                  }
+                : m,
+            ),
+          );
         }
       } else {
         status = 'error';
@@ -384,6 +416,7 @@ function AetherisApp() {
                 tokens: totalTokens,
                 latencyMs,
                 sources,
+                searchFallback,
                 respondedBy,
                 isStreaming: false,
               }
@@ -607,8 +640,8 @@ function AetherisApp() {
 
         <div className="flex flex-col flex-1 min-w-0 h-full">
           {/* Top Header Bar (Single Row, Liquid Glass 3-Zone Contract) */}
-          <header className="h-14 shrink-0 px-3 sm:px-6 liquid-glass border-x-0 border-t-0 rounded-none flex items-center justify-between gap-2 sm:gap-4 relative z-20">
-            <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
+          <header className="h-14 shrink-0 px-2.5 sm:px-6 liquid-glass border-x-0 border-t-0 rounded-none flex items-center justify-between gap-1.5 sm:gap-4 relative z-20">
+            <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0 flex-1">
               {!desktopSidebarOpen && (
                 <button
                   type="button"
@@ -644,7 +677,17 @@ function AetherisApp() {
               )}
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={openReviewsModal}
+                aria-label="Open AI reviews feed"
+                className="inline-flex items-center gap-1.5 min-h-[40px] px-2.5 sm:px-3.5 py-1.5 rounded-xl liquid-glass-btn text-xs font-medium text-slate-700 dark:text-slate-200 whitespace-nowrap shrink-0"
+              >
+                <MessageSquareHeart className="w-4 h-4 shrink-0" />
+                <span>Feed</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() =>
@@ -669,7 +712,7 @@ function AetherisApp() {
                 <button
                   type="button"
                   onClick={openProfileModal}
-                  className="min-h-[40px] inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl liquid-glass-btn-primary text-white text-xs font-semibold whitespace-nowrap shrink-0"
+                  className="min-h-[40px] inline-flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-xl liquid-glass-btn-primary text-white text-xs font-semibold whitespace-nowrap shrink-0"
                 >
                   <KeyRound className="w-3.5 h-3.5 shrink-0" />
                   <span className="hidden sm:inline">Unlimited Access</span>
@@ -682,7 +725,7 @@ function AetherisApp() {
                   type="button"
                   onClick={openProfileModal}
                   aria-label="Open account profile"
-                  className="min-h-[40px] inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl liquid-glass-btn text-xs font-medium text-slate-800 dark:text-slate-200 whitespace-nowrap shrink-0"
+                  className="min-h-[40px] inline-flex items-center gap-2 px-2.5 sm:px-3.5 py-1.5 rounded-xl liquid-glass-btn text-xs font-medium text-slate-800 dark:text-slate-200 whitespace-nowrap shrink-0"
                 >
                   <UserCheck className="w-3.5 h-3.5 text-slate-900 dark:text-slate-100 shrink-0" />
                   <span className="hidden sm:inline max-w-[120px] truncate">
@@ -693,7 +736,7 @@ function AetherisApp() {
                 <button
                   type="button"
                   onClick={() => openAuthModal('general')}
-                  className="min-h-[40px] px-4 py-1.5 rounded-xl liquid-glass-btn-primary text-white text-xs font-semibold whitespace-nowrap shrink-0"
+                  className="min-h-[40px] px-3 sm:px-4 py-1.5 rounded-xl liquid-glass-btn-primary text-white text-xs font-semibold whitespace-nowrap shrink-0"
                 >
                   Sign In
                 </button>
@@ -809,6 +852,12 @@ function AetherisApp() {
           onClose={closeProfileModal}
           onRequireAuth={openAuthModal}
           onOpenPrivacy={openPrivacyModal}
+        />
+
+        <ReviewsModal
+          open={reviewsModalOpen}
+          onClose={closeReviewsModal}
+          onRequireAuth={openAuthModal}
         />
 
         <PrivacyPolicyModal

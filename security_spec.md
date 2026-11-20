@@ -8,6 +8,7 @@
 5. **Immutable Usage Telemetry (`usageLogs/{logId}`)**: Standard verified users can create and read/delete only their own usage logs; `userId` and `createdAt` cannot be forged or backdated (`createdAt == request.time`). Verified app owner retains full oversight access.
 6. **Verified Owner Spoof Guard**: Elevated owner privileges require both `request.auth.token.email_verified == true` and exact `request.auth.token.email == 'aneeksinha52@gmail.com'`.
 7. **Owner-Controlled Unlimited Access Allowlist (`unlimitedGrants/{grantId}`)**: Only the verified app owner (`isAppOwner()`) can `create`, `update`, `delete`, or broadly `list` granted email records. Standard verified users may query/read only a grant whose normalized `email` matches `request.auth.token.email.lower()`, preventing email enumeration and self-granting escalation.
+8. **Public Non-PII Community Reviews (`reviews/{reviewId}`)**: Reviews contain zero PII (`authorName` display label only, never email). Queries must explicitly filter `visibility == 'public'` (`resource.data.visibility == 'public'`), while creating/editing/deleting requires `isVerifiedUser()` and `authorId == request.auth.uid` (or `isAppOwner()`).
 
 ## 2. Adversarial Test Payloads ("Dirty Dozen")
 1. **Shadow Field Injection on Profile**: Creating `/users/u1` with an extra `isAdmin: true` key -> Rejected by `data.keys().hasOnly(...)`.
@@ -21,4 +22,4 @@
 9. **Parent Mismatch Orphan Message**: Writing `/chats/c1/messages/m1` with `chatId: "c2"` -> Rejected by `incoming().chatId == chatId`.
 10. **Cross-Tenant Message Injection**: User `u2` writing into `/chats/c1/messages/m1` where `/chats/c1` belongs to `u1` -> Rejected by Master Gate `get(/databases/$(database)/documents/chats/$(chatId)).data.userId == request.auth.uid`.
 11. **Self-Grant Unlimited Privilege Escalation**: Non-owner user attempting to create or list all documents in `/unlimitedGrants` -> Rejected by `isAppOwner()` and `resource.data.email == request.auth.token.email.lower()`.
-12. **Negative Token Forgery**: Writing `/usageLogs/l1` with `totalTokens: -500` -> Rejected by `data.totalTokens >= 0`.
+12. **Out-of-Range Rating or Author Spoof on Review**: Writing `/reviews/r1` with `rating: 99`, `email` shadow field, or mismatched `authorId` -> Rejected by `isValidReview()` and `authorId == request.auth.uid`.

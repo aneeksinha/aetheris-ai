@@ -13,6 +13,7 @@ const __dirname = path.dirname(__filename);
 const PORT = Number(process.env.PORT) || 3000;
 
 let cachedAi: GoogleGenAI | null = null;
+let searchQuotaCooldownUntil = 0;
 function getAiClient(): GoogleGenAI {
   if (!cachedAi) {
     cachedAi = new GoogleGenAI({
@@ -155,7 +156,8 @@ async function startServer() {
     const lastUserMessageText =
       [...recentMessages].reverse().find((m) => m.role === 'user')?.content || '';
     const useLiveSearch =
-      spec.liveSearchEnabled && shouldEnableLiveSearch(lastUserMessageText, Boolean(attachment));
+      spec.liveSearchEnabled &&
+      shouldEnableLiveSearch(lastUserMessageText, Boolean(attachment));
 
     const contents: Content[] = recentMessages.map((msg, idx) => {
       const parts: Part[] = [];
@@ -249,21 +251,22 @@ async function startServer() {
       })
     ).slice(0, 140);
 
-    // Highly-tuned system instruction for Gemini 3.1 Flash Lite: fast, accurate, natural formatting
-    const systemInstruction = [
-      'You are Aetheris powered by Gemini 3.1 Flash Lite—an exceptionally sharp, reliable, fast AI assistant.',
-      `Authoritative current local date & time: ${safeLocalTime} (${safeTz}; UTC: ${serverNow.toISOString()}). Use this directly for any "today", date, day-of-week, or current-time question.`,
-      'Accuracy rules: Think through edge cases, math, logic, and code correctness carefully before answering; never invent APIs, citations, or URLs; if something cannot be verified, state clearly what is unknown.',
-      'Formatting rules: Write in a natural, conversational, clean editorial format—clear paragraphs, concise headings, or simple bullet lists where helpful. Avoid wrapping answers in decorative ASCII boxes, bordered cards, or heavy markdown tables unless explicitly requested; use language-tagged fenced code blocks only for actual code.',
-      verifiedUser?.isOwner
-        ? 'Session context: Authenticated workspace owner.'
-        : '',
-      useLiveSearch
-        ? 'Live Web Grounding: Use Google Search results when available for current facts, news, weather, or prices; summarize concisely without fabrication.'
-        : '',
-    ]
-      .filter(Boolean)
-      .join(' ');
+    // Highly-tuned system instruction built per attempt so fallback (search=false) stays consistent
+    const buildSystemInstruction = (enableSearch: boolean) =>
+      [
+        'You are Aetheris powered by Gemini 3.1 Flash Lite—an exceptionally sharp, reliable, fast AI assistant.',
+        `Authoritative current local date & time: ${safeLocalTime} (${safeTz}; UTC: ${serverNow.toISOString()}). Use this directly for any "today", date, day-of-week, or current-time question.`,
+        'Accuracy rules: Think through edge cases, math, logic, and code correctness carefully before answering; never invent APIs, citations, or URLs; if something cannot be verified, state clearly what is unknown.',
+        'Formatting rules: Write in a natural, conversational, clean editorial format—clear paragraphs, concise headings, or simple bullet lists where helpful. Avoid wrapping answers in decorative ASCII boxes, bordered cards, or heavy markdown tables unless explicitly requested; use language-tagged fenced code blocks only for actual code.',
+        verifiedUser?.isOwner
+          ? 'Session context: Authenticated workspace owner.'
+          : '',
+        enableSearch
+          ? 'Live Web Grounding: Google Search is available. Use Google Search results for current facts, sports outcomes, news, weather, prices, or recent events, and summarize concisely without fabrication.'
+          : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
 
     const buildRequestConfig = (enableSearch: boolean, abortSignal: AbortSignal) => {
       const cfg: {
@@ -272,9 +275,11 @@ async function startServer() {
         thinkingConfig: { thinkingLevel: ThinkingLevel };
         tools?: Array<{ googleSearch: Record<string, never> }>;
       } = {
-        systemInstruction,
+        systemInstruction: buildSystemInstruction(enableSearch),
         abortSignal,
-        thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
+        thinkingConfig: {
+          thinkingLevel: enableSearch ? ThinkingLevel.LOW : ThinkingLevel.MINIMAL,
+        },
       };
       if (enableSearch) {
         cfg.tools = [{ googleSearch: {} }];
@@ -306,6 +311,7 @@ async function startServer() {
     };
 
     const runFlashLiteAttempt = async (
+      modelName: string,
       enableSearch: boolean,
       timeoutMs: number,
       streaming: boolean,
@@ -335,7 +341,7 @@ async function startServer() {
       try {
         if (streaming) {
           const stream = await getAiClient().models.generateContentStream({
-            model: 'gemini-3.1-flash-lite',
+            model: modelName,
             contents,
             config: buildRequestConfig(enableSearch, controller.signal),
           });
@@ -365,7 +371,7 @@ async function startServer() {
           }
         } else {
           const response = await getAiClient().models.generateContent({
-            model: 'gemini-3.1-flash-lite',
+            model: modelName,
             contents,
             config: buildRequestConfig(enableSearch, controller.signal),
           });
@@ -391,7 +397,7 @@ async function startServer() {
       } catch (err) {
         if (didTimeout) {
           throw new Error(
-            `Gemini 3.1 Flash Lite took longer than ${Math.round(timeoutMs / 1000)}s to start responding.`,
+            `${modelName} took longer than ${Math.round(timeoutMs / 1000)}s to start responding.`,
           );
         }
         throw err;
@@ -404,8 +410,13 @@ async function startServer() {
       }
 
       if (emittedChars === 0 && !clientDisconnected) {
-        throw new Error('Gemini 3.1 Flash Lite returned an empty response.');
+        console.warn(`[chat] Empty response (model=${modelName}, search=${enableSearch}, stream=${streaming})`);
+        throw new Error(`${modelName} returned an empty response.`);
       }
+
+      console.log(
+        `[chat] Completed (model=${modelName}, search=${enableSearch}, stream=${streaming}, chars=${emittedChars}, sources=${sourceMap.size})`,
+      );
 
       return {
         emittedChars,
@@ -417,24 +428,34 @@ async function startServer() {
     };
 
     try {
-      const primaryTimeoutMs = attachment ? 35000 : useLiveSearch ? 28000 : 25000;
+      const searchAllowedNow = useLiveSearch && Date.now() >= searchQuotaCooldownUntil;
+      const primaryTimeoutMs = attachment ? 30000 : searchAllowedNow ? 10000 : 18000;
       const attempts: Array<{
+        model: string;
         search: boolean;
         timeoutMs: number;
         streaming: boolean;
         delayBeforeMs: number;
       }> = [
         {
-          search: useLiveSearch,
+          model: 'gemini-3.1-flash-lite',
+          search: searchAllowedNow,
           timeoutMs: primaryTimeoutMs,
           streaming: true,
           delayBeforeMs: 0,
         },
-        { search: false, timeoutMs: 25000, streaming: false, delayBeforeMs: 300 },
+        {
+          model: 'gemini-3.1-flash-lite',
+          search: false,
+          timeoutMs: 18000,
+          streaming: searchAllowedNow,
+          delayBeforeMs: 150,
+        },
       ];
 
       let result: Awaited<ReturnType<typeof runFlashLiteAttempt>> | null = null;
       let lastError: unknown = null;
+      let searchActive = false;
 
       for (const attempt of attempts) {
         if (clientDisconnected) break;
@@ -444,13 +465,23 @@ async function startServer() {
         }
         try {
           result = await runFlashLiteAttempt(
+            attempt.model,
             attempt.search,
             attempt.timeoutMs,
             attempt.streaming,
           );
+          searchActive = attempt.search;
           break;
         } catch (err) {
           lastError = err;
+          const errMsg = formatUpstreamError(err);
+          if (attempt.search && /quota|resource_exhausted|429/i.test(errMsg)) {
+            searchQuotaCooldownUntil = Date.now() + 5 * 60 * 1000;
+          }
+          console.warn(
+            `[chat] Attempt failed (model=${attempt.model}, search=${attempt.search}, stream=${attempt.streaming}):`,
+            errMsg,
+          );
           if (clientDisconnected || isNonRetryableError(err)) break;
         }
       }
@@ -471,6 +502,7 @@ async function startServer() {
             result.totalTokens || result.promptTokens + result.completionTokens,
           latencyMs,
           sources: result.sources,
+          searchFallback: useLiveSearch && !searchActive,
         });
         res.end();
       }

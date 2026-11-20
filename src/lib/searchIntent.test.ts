@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { shouldEnableLiveSearch } from './searchIntent';
 
-test('shouldEnableLiveSearch skips search for greetings and pure coding prompts', () => {
+test('shouldEnableLiveSearch skips greetings, coding, and static architecture prompts', () => {
   assert.equal(shouldEnableLiveSearch('hi'), false);
-  assert.equal(shouldEnableLiveSearch('hello there'), false);
+  assert.equal(shouldEnableLiveSearch('Hello!'), false);
+  assert.equal(shouldEnableLiveSearch('thanks'), false);
   assert.equal(
     shouldEnableLiveSearch('Write a type-safe debounce hook in React 19.'),
     false,
@@ -15,9 +16,13 @@ test('shouldEnableLiveSearch skips search for greetings and pure coding prompts'
   );
 });
 
-test('shouldEnableLiveSearch enables search for live events, prices, weather, and news', () => {
+test('shouldEnableLiveSearch enables Google Search automatically for real-world & current queries', () => {
   assert.equal(
     shouldEnableLiveSearch('What are the top technology headlines today?'),
+    true,
+  );
+  assert.equal(
+    shouldEnableLiveSearch('Who won the 2025 UEFA Champions League final?'),
     true,
   );
   assert.equal(
@@ -26,10 +31,6 @@ test('shouldEnableLiveSearch enables search for live events, prices, weather, an
   );
   assert.equal(
     shouldEnableLiveSearch('What is the latest Bitcoin price in USD?'),
-    true,
-  );
-  assert.equal(
-    shouldEnableLiveSearch('Who won the latest cricket match?'),
     true,
   );
 });

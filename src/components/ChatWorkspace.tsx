@@ -23,6 +23,7 @@ import {
   SIGNED_IN_DAILY_REQUEST_LIMIT,
   type ModelId,
 } from '../lib/models';
+import { pickStarterPrompts } from '../lib/suggestions';
 import type { AuthGateReason, ChatMessage, PendingAttachment } from '../types/chat';
 import { MarkdownMessage } from './MarkdownMessage';
 
@@ -39,24 +40,6 @@ interface ChatWorkspaceProps {
   loadingThread: boolean;
 }
 
-const STARTER_PROMPTS = [
-  {
-    title: 'Check today’s live context',
-    prompt: 'What is today’s exact date and day of the week, and what are the top technology headlines today?',
-  },
-  {
-    title: 'Explain an architecture tradeoff',
-    prompt: 'Compare optimistic UI updates vs. server-confirmed writes for a collaborative task app in 4 concise bullets.',
-  },
-  {
-    title: 'Write clean TypeScript',
-    prompt: 'Write a type-safe debounce hook in React 19 with cleanup on unmount and an example usage.',
-  },
-  {
-    title: 'Debug SQL query performance',
-    prompt: 'Why would a PostgreSQL query with an index on created_at still do a sequential scan, and how do I diagnose it?',
-  },
-];
 
 async function readAttachmentFile(file: File): Promise<PendingAttachment> {
   const isBinaryVisualOrPdf =
@@ -100,6 +83,7 @@ export function ChatWorkspace({
   loadingThread,
 }: ChatWorkspaceProps) {
   const { user, isOwner, hasUnlimitedAccess } = useAuth();
+  const [starterPrompts] = useState(() => pickStarterPrompts(4));
   const [draft, setDraft] = useState('');
   const [attachment, setAttachment] = useState<PendingAttachment | null>(null);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
@@ -224,9 +208,9 @@ export function ChatWorkspace({
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                {STARTER_PROMPTS.map((item, idx) => (
+                {starterPrompts.map((item, idx) => (
                   <motion.button
-                    key={item.title}
+                    key={item.id}
                     type="button"
                     disabled={limitReached}
                     onClick={() => onSendMessage(item.prompt)}
@@ -408,6 +392,18 @@ export function ChatWorkspace({
                         </div>
                       </div>
                     )}
+
+                    {!msg.isStreaming &&
+                      !msg.isError &&
+                      msg.searchFallback &&
+                      (!msg.sources || msg.sources.length === 0) && (
+                        <div className="pt-1.5 flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                          <Globe className="w-3 h-3 shrink-0" />
+                          <span>
+                            Web search quota reached on current API key — answered from Flash Lite &amp; local clock.
+                          </span>
+                        </div>
+                      )}
                   </motion.article>
                 );
               })}

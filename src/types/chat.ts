@@ -26,6 +26,7 @@ export interface ChatMessage {
   attachmentName?: string;
   attachmentType?: string;
   sources?: GroundingSource[];
+  searchFallback?: boolean;
   respondedBy?: string;
   createdAtMs: number;
   isStreaming?: boolean;
@@ -53,6 +54,16 @@ export interface UnlimitedGrant {
   email: string;
   grantedBy: string;
   note?: string;
+  createdAtMs: number;
+  updatedAtMs: number;
+}
+
+export interface ReviewItem {
+  id: string;
+  authorId: string;
+  authorName: string;
+  rating: number;
+  comment: string;
   createdAtMs: number;
   updatedAtMs: number;
 }
